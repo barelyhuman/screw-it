@@ -3,10 +3,34 @@
 import { cancel, intro, outro, select, spinner, text } from '@clack/prompts'
 import { execa } from 'execa'
 import { inc, valid } from 'semver'
+import { parseArgs } from 'node:util'
+
+const { values: cliArgs } = parseArgs({
+  options: {
+    otp: { type: 'string' },
+    bump: {
+      type: 'string',
+      choices: [
+        'patch',
+        'minor',
+        'major',
+        'premajor',
+        'preminor',
+        'prepatch',
+        'prerelease',
+        'release',
+      ],
+    },
+  },
+  allowPositionals: true,
+})
 
 async function run() {
   intro('Starting screw-it...')
-  const ctx = {}
+  const ctx = {
+    otp: cliArgs.otp,
+    bumpVersion: cliArgs.bump,
+  }
 
   // Validate Environment
 
@@ -140,35 +164,43 @@ async function checkRegistryVersion(ctx) {
 }
 
 async function bumpVersion(ctx) {
-  const versions = [
-    'patch',
-    'minor',
-    'major',
-    'premajor',
-    'preminor',
-    'prepatch',
-    'prerelease',
-    'release',
-  ].map(type => ({
-    type,
-    version: inc(ctx.currentVersion, type),
-  }))
+  let nextVersion
+  if (ctx.bumpVersion) {
+    nextVersion = inc(ctx.currentVersion, type)
+  }
+  if (!nextVersion) {
+    const versions = [
+      'patch',
+      'minor',
+      'major',
+      'premajor',
+      'preminor',
+      'prepatch',
+      'prerelease',
+      'release',
+    ].map(type => ({
+      type,
+      version: inc(ctx.currentVersion, type),
+    }))
 
-  const choice = await select({
-    message: 'Select version:',
-    options: versions.map(v => ({
-      value: v,
-      label: `${v.type} - ${v.version}`,
-    })),
-  })
+    const choice = await select({
+      message: 'Select version:',
+      options: versions.map(v => ({
+        value: v,
+        label: `${v.type} - ${v.version}`,
+      })),
+    })
 
-  if (!choice) {
-    throw new Error('No version selected')
+    if (!choice) {
+      throw new Error('No version selected')
+    }
+
+    nextVersion = choice.version
   }
 
   try {
-    await execa('npm', ['version', choice.version, '--no-git-tag-version'])
-    ctx.newVersion = choice.version
+    await execa('npm', ['version', nextVersion, '--no-git-tag-version'])
+    ctx.newVersion = nextVersion
   } catch (err) {
     throw new Error('Failed to bump version: ' + err.message)
   }
@@ -176,7 +208,11 @@ async function bumpVersion(ctx) {
 
 async function publishToNpm(ctx) {
   try {
-    await execa('npm', ['publish'])
+    if (ctx.otp) {
+      await execa('npm', ['publish', '--otp', otp])
+    } else {
+      await execa('npm', ['publish'])
+    }
   } catch (err) {
     if (
       err.message.includes('one-time passcode') ||
