@@ -70,7 +70,19 @@ async function run() {
     process.exit(1)
   }
 
-  // 4. Check registry version
+  // 4. Bump version
+  s = spinner()
+  s.start('Bumping version...')
+  try {
+    await bumpVersion(ctx)
+    s.stop(`Version bumped to ${ctx.newVersion}`)
+  } catch (err) {
+    s.stop(err.message)
+    cancel('Exiting...')
+    process.exit(1)
+  }
+
+  // 5. Check registry version
   s = spinner()
   s.start('Checking registry version...')
   try {
@@ -83,18 +95,6 @@ async function run() {
   }
 
   // Publishing
-
-  // 5. Bump version
-  s = spinner()
-  s.start('Bumping version...')
-  try {
-    await bumpVersion(ctx)
-    s.stop(`Version bumped to ${ctx.newVersion}`)
-  } catch (err) {
-    s.stop(err.message)
-    cancel('Exiting...')
-    process.exit(1)
-  }
 
   // 6. Publish to npm
   s = spinner()
@@ -140,8 +140,7 @@ async function getGitStatus() {
 
 async function getPackageVersion(ctx) {
   const { stdout } = await execa('npm', ['pkg', 'get', 'version'])
-  const version = stdout.replace(/"/g, '')
-  const parsedVersion = valid(version)
+  const parsedVersion = valid(JSON.parse(stdout).trim())
   if (!parsedVersion) {
     throw new Error('Invalid semver version in package.json')
   }
@@ -152,7 +151,7 @@ async function checkRegistryVersion(ctx) {
   try {
     const { stdout } = await execa('npm', ['view', '.', 'version'])
     ctx.registryVersion = stdout.trim()
-    if (ctx.registryVersion === ctx.currentVersion) {
+    if (ctx.registryVersion === ctx.newVersion) {
       throw new Error('Version already exists on registry')
     }
   } catch (err) {
@@ -166,7 +165,7 @@ async function checkRegistryVersion(ctx) {
 async function bumpVersion(ctx) {
   let nextVersion
   if (ctx.bumpVersion) {
-    nextVersion = inc(ctx.currentVersion, type)
+    nextVersion = inc(ctx.currentVersion, ctx.bumpVersion)
   }
   if (!nextVersion) {
     const versions = [
